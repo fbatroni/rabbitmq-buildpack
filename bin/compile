@@ -1,0 +1,59 @@
+#!/usr/bin/env bash
+# bin/compile <build-dir> <cache-dir>
+
+# fail fast
+set -e
+
+sudo chmod 777 /tmp
+
+BIN_DIR=$(cd $(dirname $0); pwd) # absolute path
+# parse args
+BUILD_DIR=$1
+CACHE_DIR=$2
+LOGGER_FLAGS=""
+BUILDPACK_DIR="$(dirname ${BIN_DIR})"
+
+echo '==> Render dynamic config files'
+for template in $(find $BUILD_DIR/ | grep '.erb$')
+do
+  target=$(dirname "${template}")/$(basename -s .erb "${template}")
+  echo "$template -> $target"
+  erb "${template}" > "${target}"
+done
+
+if which apt-get; then
+  echo '==> Updating and installing pre-reqs for environment - updating our system default application toolset'
+  apt-get    update 
+  apt-get -y upgrade
+
+  echo '==> RABBITMQ:::::'
+
+  # Enable RabbitMQ application repository:
+  echo "deb http://www.rabbitmq.com/debian/ testing main" >> /etc/apt/sources.list
+
+  # add the verification key for the package:
+  curl http://www.rabbitmq.com/rabbitmq-signing-key-public.asc | sudo apt-key add -
+
+  # update the sources with our new addition from above:
+  apt-get update
+
+  # download and install RabbitMQ:
+  sudo apt-get install rabbitmq-server
+
+  # Copy out configuration to default location
+  sudo cp /etc/default/rabbitmq-server /etc/default/rabbitmq-server.default # make a backup of original rabbitMQ config
+  sudo cp -f "$BIN_DIR/rabbitmq-server" /etc/default/rabbitmq-server
+
+  # enable RabbitMQ Management Console
+  sudo rabbitmq-plugins enable rabbitmq_management
+
+fi
+
+echo '==> System Overlay'
+#this if statement makes a lot more sense when you learn that I occasionally
+#run this buildpack on my Mac...
+if which apt-get; then
+  if [ -d ${BUILD_DIR}/overlay ]; then
+    sudo cp -R ${BUILD_DIR}/overlay/* /
+  fi
+fi
